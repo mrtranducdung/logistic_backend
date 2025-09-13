@@ -2,23 +2,24 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { expressjwt as jwt } from 'express-jwt';
 import db, { migrate } from './db.js';
 
 dotenv.config();
-migrate();
+
+// chạy migrate async trước khi listen
+await migrate();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // ---------- helpers ----------
-function addNotification(userId, message) {
-  db.prepare('INSERT INTO notifications(user_id, message) VALUES (?, ?)').run(userId, message);
+async function addNotification(userId, message) {
+  await db.query('INSERT INTO notifications(user_id, message) VALUES ($1, $2)', [userId, message]);
 }
 app.set('notify', addNotification);
 

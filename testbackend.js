@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import db from './src/db.js';
+import pool, { migrate } from './src/db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
@@ -8,11 +8,14 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
 // 1️⃣ Tạo user admin nếu chưa có
-function createAdminUser() {
-  const exists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
-  if (!exists) {
+async function createAdminUser() {
+  const res = await pool.query('SELECT * FROM users WHERE username=$1', ['admin']);
+  if (res.rows.length === 0) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users(username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
+    await pool.query(
+      'INSERT INTO users(username, password_hash, role) VALUES($1,$2,$3)',
+      ['admin', hash, 'admin']
+    );
     console.log('Admin user created: username=admin, password=admin123');
   } else {
     console.log('Admin user already exists');
@@ -21,7 +24,8 @@ function createAdminUser() {
 
 // 2️⃣ Login để lấy token
 async function login() {
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+  const res = await pool.query('SELECT * FROM users WHERE username=$1', ['admin']);
+  const user = res.rows[0];
   const passwordCorrect = bcrypt.compareSync('admin123', user.password_hash);
   if (!passwordCorrect) throw new Error('Wrong password');
 
@@ -42,9 +46,16 @@ async function testProtectedRoute(token) {
 }
 
 async function main() {
-  createAdminUser();
-  const token = await login();
-  await testProtectedRoute(token);
+  try {
+    await migrate();          // tạo bảng nếu chưa có
+    await createAdminUser();
+    const token = await login();
+    await testProtectedRoute(token);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    await pool.end();
+  }
 }
 
-main().catch(console.error);
+main();

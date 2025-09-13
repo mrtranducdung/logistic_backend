@@ -10,39 +10,65 @@ const router = Router();
 const invDir = path.join(process.cwd(), 'uploads', 'invoices');
 fs.mkdirSync(invDir, { recursive: true });
 
-router.get('/', (req,res)=> {
-  const rows = db.prepare(`SELECT i.*, sh.waybill_no FROM invoices i 
-    LEFT JOIN shipments sh ON sh.id = i.shipment_id
-    ORDER BY i.id DESC`).all();
-  res.json(rows);
+// --------- Get all invoices ----------
+router.get('/', async (req,res)=> {
+  try {
+    const result = await db.query(`
+      SELECT i.*, sh.waybill_no 
+      FROM invoices i
+      LEFT JOIN shipments sh ON sh.id = i.shipment_id
+      ORDER BY i.id DESC
+    `);
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.post('/:shipment_id/generate', (req,res)=> {
-  const sh = db.prepare(`SELECT sh.*, o.order_no, o.receiver_name FROM shipments sh LEFT JOIN orders o ON o.id=sh.order_id WHERE sh.id=?`).get(req.params.shipment_id);
-  if (!sh) return res.status(404).json({ error: 'shipment not found' });
-  const cost = db.prepare('SELECT total FROM costs WHERE shipment_id=?').get(req.params.shipment_id);
-  const amount = cost?.total || 0;
-  const invoiceNo = genInvoiceNo();
-  const pdfPath = path.join(invDir, `${invoiceNo}.pdf`);
+// --------- Generate invoice ----------
+router.post('/:shipment_id/generate', async (req,res)=> {
+  try {
+    const shRes = await db.query(`
+      SELECT sh.*, o.order_no, o.receiver_name 
+      FROM shipments sh 
+      LEFT JOIN orders o ON o.id = sh.order_id 
+      WHERE sh.id=$1
+    `, [req.params.shipment_id]);
+    const sh = shRes.rows[0];
+    if (!sh) return res.status(404).json({ error: 'shipment not found' });
 
-  // create PDF
-  const doc = new PDFDocument();
-  doc.pipe(fs.createWriteStream(pdfPath));
-  doc.fontSize(18).text('HÓA ĐƠN VẬN TẢI', { align: 'center' });
-  doc.moveDown();
-  doc.text(`Số hóa đơn: ${invoiceNo}`);
-  doc.text(`Số waybill: ${sh.waybill_no}`);
-  doc.text(`Số đơn hàng: ${sh.order_id} / ${sh.order_no || ''}`);
-  doc.text(`Người nhận: ${sh.receiver_name || ''}`);
-  doc.text(`Ngày phát hành: ${new Date().toISOString()}`);
-  doc.moveDown();
-  doc.text(`Thành tiền: ${amount} VND`);
-  doc.end();
+    const costRes = await db.query('SELECT total FROM costs WHERE shipment_id=$1', [req.params.shipment_id]);
+    const amount = costRes.rows[0]?.total || 0;
 
-  const info = db.prepare('INSERT INTO invoices(shipment_id, invoice_no, amount, pdf_path) VALUES (?,?,?,?)')
-    .run(req.params.shipment_id, invoiceNo, amount, '/uploads/invoices/' + path.basename(pdfPath));
+    const invoiceNo = genInvoiceNo();
+    const pdfPath = path.join(invDir, `${invoiceNo}.pdf`);
 
-  res.json({ id: info.lastInsertRowid, invoice_no: invoiceNo, pdf: '/uploads/invoices/' + path.basename(pdfPath) });
+    // create PDF
+    const doc = new PDFDocument();
+    doc.pipe(fs.createWriteStream(pdfPath));
+    doc.fontSize(18).text('HÓA ĐƠN VẬN TẢI', { align: 'center' });
+    doc.moveDown();
+    doc.text(`Số hóa đơn: ${invoiceNo}`);
+    doc.text(`Số waybill: ${sh.waybill_no}`);
+    doc.text(`Số đơn hàng: ${sh.order_id} / ${sh.order_no || ''}`);
+    doc.text(`Người nhận: ${sh.receiver_name || ''}`);
+    doc.text(`Ngày phát hành: ${new Date().toISOString()}`);
+    doc.moveDown();
+    doc.text(`Thành tiền: ${amount} VND`);
+    doc.end();
+
+    const insertRes = await db.query(
+      `INSERT INTO invoices(shipment_id, invoice_no, amount, pdf_path) 
+       VALUES ($1,$2,$3,$4) RETURNING id`,
+      [req.params.shipment_id, invoiceNo, amount, '/uploads/invoices/' + path.basename(pdfPath)]
+    );
+
+    const id = insertRes.rows[0].id;
+    res.json({ id, invoice_no: invoiceNo, pdf: '/uploads/invoices/' + path.basename(pdfPath) });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;

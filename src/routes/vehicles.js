@@ -3,22 +3,62 @@ import db from '../db.js';
 
 const router = Router();
 
-router.get('/', (req,res)=> {
-  const rows = db.prepare('SELECT v.*, s.name as supplier_name FROM vehicles v LEFT JOIN suppliers s ON v.supplier_id = s.id ORDER BY v.id DESC').all();
-  res.json(rows);
+// --------- Get all vehicles ----------
+router.get('/', async (req,res) => {
+  try {
+    const result = await db.query(
+      `SELECT v.*, s.name as supplier_name 
+       FROM vehicles v 
+       LEFT JOIN suppliers s ON v.supplier_id = s.id 
+       ORDER BY v.id DESC`
+    );
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.post('/', (req,res)=> {
-  const v = req.body;
-  const info = db.prepare(`INSERT INTO vehicles(plate_number, capacity_weight, driver_name, driver_phone, supplier_id, available_from, available_to, status)
-    VALUES (?,?,?,?,?,?,?,?)`).run(v.plate_number, v.capacity_weight || 0, v.driver_name || '', v.driver_phone || '', v.supplier_id || null, v.available_from || '', v.available_to || '', v.status || 'available');
-  res.json({ id: info.lastInsertRowid });
+// --------- Create new vehicle ----------
+router.post('/', async (req,res) => {
+  try {
+    const v = req.body;
+    const insert = await db.query(
+      `INSERT INTO vehicles(plate_number, capacity_weight, driver_name, driver_phone, supplier_id, available_from, available_to, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [
+        v.plate_number,
+        v.capacity_weight || 0,
+        v.driver_name || '',
+        v.driver_phone || '',
+        v.supplier_id || null,
+        v.available_from || null,
+        v.available_to || null,
+        v.status || 'available'
+      ]
+    );
+    res.json({ id: insert.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.get('/check', (req,res)=> {
-  const { date, min_capacity } = req.query;
-  const rows = db.prepare(`SELECT * FROM vehicles WHERE status='available' AND (available_from IS NULL OR available_from<=?) AND (available_to IS NULL OR available_to>=?) AND capacity_weight>=? ORDER BY id DESC`).all(date || '', date || '', min_capacity || 0);
-  res.json(rows);
+// --------- Check available vehicles ----------
+router.get('/check', async (req,res) => {
+  try {
+    const { date, min_capacity } = req.query;
+    const result = await db.query(
+      `SELECT * FROM vehicles 
+       WHERE status='available' 
+         AND (available_from IS NULL OR available_from <= $1) 
+         AND (available_to IS NULL OR available_to >= $2) 
+         AND capacity_weight >= $3
+       ORDER BY id DESC`,
+      [date || null, date || null, min_capacity || 0]
+    );
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;

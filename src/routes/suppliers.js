@@ -3,15 +3,28 @@ import db from '../db.js';
 
 const router = Router();
 
-router.get('/', (req,res)=> {
-  const rows = db.prepare('SELECT * FROM suppliers ORDER BY id DESC').all();
-  res.json(rows);
+// --------- Get all suppliers ----------
+router.get('/', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM suppliers ORDER BY id DESC');
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.post('/', (req,res)=> {
-  const { name, contact, phone } = req.body;
-  const info = db.prepare('INSERT INTO suppliers(name, contact, phone) VALUES (?,?,?)').run(name, contact || '', phone || '');
-  res.json({ id: info.lastInsertRowid });
+// --------- Create supplier ----------
+router.post('/', async (req, res) => {
+  try {
+    const { name, contact, phone } = req.body;
+    const insert = await db.query(
+      'INSERT INTO suppliers(name, contact, phone) VALUES ($1,$2,$3) RETURNING id',
+      [name, contact || '', phone || '']
+    );
+    res.json({ id: insert.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;

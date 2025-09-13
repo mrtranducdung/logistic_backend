@@ -3,9 +3,18 @@ import db from '../db.js';
 
 const router = Router();
 
-router.get('/', (req,res)=> {
-  const rows = db.prepare('SELECT * FROM notifications WHERE user_id IS NULL OR user_id=? ORDER BY id DESC').all(req.auth?.sub || null);
-  res.json(rows);
+// --------- Get notifications ----------
+router.get('/', async (req,res)=> {
+  try {
+    const userId = req.auth?.sub || null;
+    const result = await db.query(
+      'SELECT * FROM notifications WHERE user_id IS NULL OR user_id=$1 ORDER BY id DESC',
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;
